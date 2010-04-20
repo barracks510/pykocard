@@ -21,6 +21,8 @@
 # $Id$
 #
 
+import sys
+
 class CartadisTCRS :
     """A class to manage Cartadis TCRS vending card readers.
 
@@ -45,7 +47,7 @@ class CartadisTCRS :
             self.serialport.close()
             self.serialport = None
 
-    def debug(self, message) :
+    def logDebug(self, message) :
         """Logs a debug message."""
         if self.debug :
             sys.stderr.write("%s\n" % message)
