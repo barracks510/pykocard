@@ -37,6 +37,25 @@ class CartadisTCRS :
         self.debug = debug
         self.serialport = None
 
+        self.tcrsprompt = chr(13) + chr(10) + '$' # the prompt
+        self.eoc = chr(13) # end of command
+
+        # Each Cartadis vending card contain the following informations :
+        #
+        # the card can only be read on readers for which this group number
+        # was specifically allowed.
+        self.group = None
+        # the number of credits on the card.
+        self.value = None
+        # the two following fields allow the card
+        # to be assigned to a particular individual.
+        # only plastic cards can use such attributes,
+        # for throw-away cards, these values should both be set to 0
+        self.department = None
+        self.account = None
+        # transaction number. Max 3000 for plastic cards, else 500.
+        self.trnum = None
+
     def __del__(self) :
         """Ensures the serial link is closed on deletion."""
         self.close()
@@ -52,4 +71,5 @@ class CartadisTCRS :
         if self.debug :
             sys.stderr.write("%s\n" % message)
             sys.stderr.flush()
+
 
