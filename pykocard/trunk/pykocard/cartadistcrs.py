@@ -107,6 +107,11 @@ class CartadisTCRS :
         self.tcrs.write(command)
         self.tcrs.flush()
         self.lastcommand = command
+        #
+        # IMPORTANT : the following code doesn't work because currently
+        # PySerial doesn't allow an EOL marker to be several chars long.
+        # I've just sent a patch for this to PySerial's author, and we'll
+        # see what happens. If not accepted, I'll write it another way.
         return = self.tcrs.readline(eol=self.tcrsprompt)[:-len(self.tcrsprompt)]
 
     def help(self) :
