@@ -71,6 +71,14 @@ class CartadisTCRS :
         # cleans up any data waiting to be read
         self.tcrs.flushInput()
 
+        # Identifies the terminal
+        self.versionNumber = self.version()
+        self.serialNumber = self.serial()
+        self.logDebug("%s terminal detected on device %s with serial number %s" \
+                          % (self.versionNumber,
+                             self.device,
+                             self.serialNumber))
+
     def __del__(self) :
         """Ensures the serial link is closed on deletion."""
         self.close()
@@ -78,8 +86,10 @@ class CartadisTCRS :
     def close(self) :
         """Closes the serial link if it is open."""
         if self.tcrs is not None :
+            self.logDebug("Closing serial link...")
             self.tcrs.close()
             self.tcrs = None
+            self.logDebug("Serial link closed.")
 
     def logDebug(self, message) :
         """Logs a debug message."""
@@ -97,5 +107,24 @@ class CartadisTCRS :
         self.tcrs.write(command)
         self.tcrs.flush()
         self.lastcommand = command
+        return = self.tcrs.readline(eol=self.tcrsprompt)[:-len(self.tcrsprompt)]
 
+    def help(self) :
+        """Returns the list of commands supported by the TCRS."""
+        result = self.sendCommand("help")
+        self.logDebug("Supported commands : %s" % result)
+        return result
 
+    def version(self) :
+        """Returns the TCRS' version string."""
+        return self.sendCommand("version")
+
+    def serial(self) :
+        """Returns the TCRS' serial number.'"""
+        return self.sendCommand("serial")
+
+if __name__ == "__main__" :
+    # Minimal testing
+    tcrs = CartadisTCRS("/dev/ttyS0", debug=True)
+    tcrs.help()
+    tcrs.close()
