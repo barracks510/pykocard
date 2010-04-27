@@ -22,6 +22,7 @@
 #
 
 import sys
+import time
 
 import serial # On Debian/Ubuntu : apt-get install python-serial
 
@@ -56,7 +57,30 @@ SENSORUNKNOWN1=1   # Partially inside the TCRS
 SENSORCARDINSIDE=2 # Card is inside the TCRS
 SENSORUNKNOWN3=3   # Partially inside the TCRS
 
-class CartadisTCRS :
+# Waiting loop delay
+WAITDELAY=1.0 # 1 second
+
+class Terminal :
+    """Base class for all terminals."""
+    def __init__(self, device, timeout=1.0, debug=False) :
+        """Must be implemented elsewhere."""
+        raise NotImplementedError
+
+    def __del__(self) :
+        """Ensures the serial link is closed on deletion."""
+        self.close()
+
+    def logError(self, message) :
+        """Logs an error message."""
+        sys.stderr.write("%s\n" % message)
+        sys.stderr.flush()
+
+    def logDebug(self, message) :
+        """Logs a debug message."""
+        if self.debug :
+            self.logError(message)
+
+class CartadisTCRS(Terminal) :
     """A class to manage Cartadis TCRS vending card readers.
 
        Documentation was found in a Cartadis TCRS reader's paper manual.
@@ -68,6 +92,8 @@ class CartadisTCRS :
         self.device = device
         self.timeout = timeout
         self.debug = debug
+
+        self.debitCardTypes = (3, 5, 6, 7) # TODO : define some constants for these card types
 
         self.lastcommand = None
         self.shortprompt = '$'
@@ -111,29 +137,7 @@ class CartadisTCRS :
                                  self.device,
                                  self.serialNumber))
 
-    def __del__(self) :
-        """Ensures the serial link is closed on deletion."""
-        self.close()
-
-    def close(self) :
-        """Closes the serial link if it is open."""
-        if self.tcrs is not None :
-            self.logDebug("Closing serial link...")
-            self.tcrs.close()
-            self.tcrs = None
-            self.logDebug("Serial link closed.")
-
-    def logError(self, message) :
-        """Logs an error message."""
-        sys.stderr.write("%s\n" % message)
-        sys.stderr.flush()
-
-    def logDebug(self, message) :
-        """Logs a debug message."""
-        if self.debug :
-            self.logError(message)
-
-    def sendCommand(self, cmd, param=None) :
+    def _sendCommand(self, cmd, param=None) :
         """Sends a command to the TCRS."""
         if self.tcrs is not None :
             if param is not None :
@@ -164,85 +168,86 @@ class CartadisTCRS :
         else :
             self.logError("Device %s is not open" % self.device)
 
+    # Device specific calls
     def help(self) :
         """Returns the list of commands supported by the TCRS."""
-        return self.sendCommand("help")
+        return self._sendCommand("help")
 
     def version(self) :
         """Returns the TCRS' version string."""
-        return self.sendCommand("version")
+        return self._sendCommand("version")
 
     def serial(self) :
         """Returns the TCRS' serial number.'"""
-        return self.sendCommand("serial")
+        return self._sendCommand("serial")
 
     def read(self) :
         """Reads the card's content to the TCRS. Returns the type of card or an error value."""
-        return int(self.sendCommand("read") or -1)
+        return int(self._sendCommand("read") or -1)
 
     def write(self) :
         """Writes the TCRS values to the card. Returns 0 or error value."""
-        return int(self.sendCommand("write"))
+        return int(self._sendCommand("write"))
 
     def sensor(self) :
         """Returns 0 if there's no card in TCRS, else 1, 2 or 3."""
-        return int(self.sendCommand("sensor"))
+        return int(self._sendCommand("sensor"))
 
     def eject(self) :
         """Ejects the card from the TCRS."""
-        return self.sendCommand("eject")
+        return self._sendCommand("eject")
 
     def trnum(self) :
         """Returns the number of transactions made with this card."""
-        return int(self.sendCommand("trnum"))
+        return int(self._sendCommand("trnum"))
 
     def value(self, value=None) :
         """Returns the last value read, or sets the new value of the card, but doesn't write it to the card yet."""
         if value is None :
-            return int(self.sendCommand("value"))
+            return int(self._sendCommand("value"))
         else :
-            return self.sendCommand("value", str(value))
+            return self._sendCommand("value", str(value))
 
     def account(self, account=None) :
         """Returns the last account number read, or sets the account number, but doesn't write it to the card yet.'"""
         if account is None :
-            return int(self.sendCommand("account"))
+            return int(self._sendCommand("account"))
         else :
-            return self.sendCommand("account", str(account))
+            return self._sendCommand("account", str(account))
 
     def department(self, department=None) :
         """Returns the last department number read, or sets the department number, but doesn't write it to the card yet.'"""
         if department is None :
-            return int(self.sendCommand("department"))
+            return int(self._sendCommand("department"))
         else :
-            return self.sendCommand("department", str(department))
+            return self._sendCommand("department", str(department))
 
     def group(self, group=None) :
         """Returns the last group number read, or sets the group number, but doesn't write it to the card yet.'"""
         if group is None :
-            return int(self.sendCommand("group"))
+            return int(self._sendCommand("group"))
         else :
-            return self.sendCommand("group", str(group))
+            return self._sendCommand("group", str(group))
 
     def addgrp(self, group=None) :
         """Adds the group to the list of allowed ones. If no group, the one on the admin card is used."""
-        return int(self.sendCommand("addgrp", str(group)))
+        return int(self._sendCommand("addgrp", str(group)))
 
     def listgrp(self) :
         """Returns the list of allowed group numbers."""
-        return [int(g) for g in self.sendCommand("listgrp").split()]
+        return [int(g) for g in self._sendCommand("listgrp").split()]
 
     def delgrp(self, group) :
         """Deletes the group from the list of allowed groups."""
-        return int(self.sendCommand("delgrp", str(group)))
+        return int(self._sendCommand("delgrp", str(group)))
 
     def cardtype(self, cardtype=None) :
         """Returns the type of card, or sets it (not clear in the doc if a write call is needed or not)."""
         # TODO : doesn't seem to return a meaningful answer
         if cardtype is None :
-            answer = self.sendCommand("cardtype")
+            answer = self._sendCommand("cardtype")
         else :
-            answer = self.sendCommand("cardtype", str(cardtype))
+            answer = self._sendCommand("cardtype", str(cardtype))
         try :
             return int(answer)
         except ValueError :
@@ -251,7 +256,7 @@ class CartadisTCRS :
 
     def display(self, text) :
         """Displays a string of text on the TCRS' screen."""
-        return self.sendCommand("display", text)
+        return self._sendCommand("display", text)
 
     def echo(self, echo) :
         """Changes the type of echo for the TCRS' keyboard."""
@@ -281,6 +286,68 @@ class CartadisTCRS :
         """Changes the text displayed after the value of the card (e.g. 'EURO')."""
         raise NotImplementedError
 
+    # Public API
+    def close(self) :
+        """Closes the serial link if it is open."""
+        if self.tcrs is not None :
+            self.logDebug("Closing serial link...")
+            self.tcrs.close()
+            self.tcrs = None
+            self.logDebug("Serial link closed.")
+
+    def waitForCard(self) :
+        """Waits for the card to be inserted into the terminal."""
+        while tcrs.sensor() != SENSORCARDINSIDE :
+            time.sleep(WAITDELAY)
+
+class CreditCard :
+    """A class for cards."""
+    def __init__(self, terminal) :
+        """Initializes a card present in the terminal."""
+        self.terminal = terminal
+        self.value = None
+        terminal.waitForCard()
+        if terminal.read() in terminal.debitCardTypes :
+            self.value = terminal.value()
+
+    def releaseCard(self) :
+        """Ejects the card from the terminal."""
+        result = self.terminal.eject()
+        self.value = None
+        return result
+
+    def __int__(self) :
+        """Returns the number of credits on the card as an integer."""
+        return int(self.value)
+
+    def __float__(self) :
+        """Returns the number of credits on the card as a float."""
+        return float(self.value)
+
+    def __iadd__(self, other) :
+        """Increases the number of credits on a card with 'card += amount'."""
+        newvalue = self.value + other
+        writtenvalue = self.terminal.value(newvalue)
+        if writtenvalue == newvalue :
+            if self.terminal.write() == NOERROR :
+                # TODO : should we return 'writtenvalue' or read from the card again to be sure ?
+                # Is another read() call needed before ? TODO : check this again with the real card reader.
+                self.value = self.terminal.value()
+                return self.value
+        raise ValueError, "Unable to read or write the card"
+
+    def __isub__(self, other) :
+        """Decreases the number of credits on a card with 'card -= amount'."""
+        newvalue = self.value - other
+        writtenvalue = self.terminal.value(newvalue)
+        if writtenvalue == newvalue :
+            if self.terminal.write() == NOERROR :
+                # TODO : should we return 'writtenvalue' or read from the card again to be sure ?
+                # Is another read() call needed before ? TODO : check this again with the real card reader.
+                self.value = self.terminal.value()
+                return self.value
+        raise ValueError, "Unable to read or write the card"
+
 if __name__ == "__main__" :
     # Minimal testing
     tcrs = CartadisTCRS("/dev/ttyS0", debug=True)
@@ -294,15 +361,9 @@ if __name__ == "__main__" :
         sys.stdout.write("This Cartadis TCRS supports the following commands :\n%s\n" % tcrs.help())
         sys.stdout.write("Allowed groups : %s\n" % tcrs.listgrp())
 
-        import time
         sys.stdout.write("Please insert your card into the TCRS...")
         sys.stdout.flush()
-        while True :
-            cardpresent = tcrs.sensor()
-            tcrs.logDebug("Sensor Status : %i\n" % cardpresent)
-            if cardpresent == SENSORCARDINSIDE :
-                break
-            time.sleep(1.0)
+        tcrs.waitForCard()
         sys.stdout.write("\n")
 
         sys.stdout.write("Card read status : %s\n" % tcrs.read())
@@ -323,7 +384,13 @@ if __name__ == "__main__" :
         # Now we read it back
         #tcrs.read()
         #sys.stdout.write("Card now has %s credits\n" % tcrs.value())
-    finally :
-        # We always do an eject, even if card not present
+        #
         tcrs.eject()
+        #
+        # And now some higher level API
+        creditcard = CreditCard(tcrs) # Waits until card is inserted
+        creditcard += 5 # This one will fail with my terminal, but won't consume my credits :-)
+        # creditcard -= 1 # This one would work with my terminal, but would consume my credits :-)
+        creditcard.release()
+    finally :
         tcrs.close()
