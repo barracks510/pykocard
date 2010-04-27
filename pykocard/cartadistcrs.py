@@ -50,6 +50,11 @@ ERRNOTADMIN = -9
 ERRLISTFULL = -10
 ERRADMINNOTALLOWED = -11
 
+# Sensor
+SENSORNOCARD=0     # No card present
+SENSORUNKNOWN1=1   # Partially inside the TCRS
+SENSORCARDINSIDE=2 # Card is inside the TCRS
+SENSORUNKNOWN3=3   # Partially inside the TCRS
 
 class CartadisTCRS :
     """A class to manage Cartadis TCRS vending card readers.
@@ -58,7 +63,7 @@ class CartadisTCRS :
 
        Cartadis is a registered trademark from Copie Monnaie France (C.M.F.)
     """
-    def __init__(self, device, timeout=5.0, debug=False) :
+    def __init__(self, device, timeout=1.0, debug=False) :
         """Initializes the connection to the TCRS."""
         self.device = device
         self.timeout = timeout
@@ -89,9 +94,11 @@ class CartadisTCRS :
                                   rtscts=True,
                                   timeout=timeout)
 
-        # cleans up any data waiting to be read
+        # cleans up any data waiting to be read or written
         try :
             self.tcrs.flushInput()
+            self.tcrs.flushOutput()
+            self.tcrs.read(1) # Skips the first $ prompt
         except serial.serialutil.SerialException, msg :
             self.logError(msg)
             self.close()
@@ -99,12 +106,10 @@ class CartadisTCRS :
             # Identifies the terminal
             self.versionNumber = self.version()
             self.serialNumber = self.serial()
-            self.logDebug("%s terminal detected on device %s with serial number %s" \
+            self.logDebug("%s TCRS detected on device %s with serial number %s" \
                               % (self.versionNumber,
                                  self.device,
                                  self.serialNumber))
-            self.supportedCommands = self.help()
-            self.logDebug("Supported commands : %s" % self.supportedCommands)
 
     def __del__(self) :
         """Ensures the serial link is closed on deletion."""
@@ -146,10 +151,13 @@ class CartadisTCRS :
             # see what happens. If not accepted, I'll write it another way.
             answer = self.tcrs.readline(eol=self.prompt)
             self.logDebug("TCRS answered %s" % repr(answer))
+            if answer.startswith(command) :
+                answer = answer[len(command):]
             if answer.startswith(self.sol) and answer.endswith(self.prompt) :
                 return answer[self.sollen:-self.promptlen]
             else :
-                self.logError("Unknown answer %s" % repr(answer))
+                if answer != self.sol :
+                    self.logError("Unknown answer %s" % repr(answer))
                 return None
         else :
             self.logError("Device %s is not open" % self.device)
@@ -168,7 +176,7 @@ class CartadisTCRS :
 
     def read(self) :
         """Reads the card's content to the TCRS. Returns the type of card or an error value."""
-        return int(self.sendCommand("read"))
+        return int(self.sendCommand("read") or -1)
 
     def write(self) :
         """Writes the TCRS values to the card. Returns 0 or error value."""
@@ -191,44 +199,53 @@ class CartadisTCRS :
         if value is None :
             return int(self.sendCommand("value"))
         else :
-            return self.sendCommand("value", value)
+            return self.sendCommand("value", str(value))
 
-    def account(self, account) :
+    def account(self, account=None) :
         """Returns the last account number read, or sets the account number, but doesn't write it to the card yet.'"""
         if account is None :
             return int(self.sendCommand("account"))
         else :
-            return self.sendCommand("account", account)
+            return self.sendCommand("account", str(account))
 
-    def department(self, department) :
+    def department(self, department=None) :
         """Returns the last department number read, or sets the department number, but doesn't write it to the card yet.'"""
         if department is None :
             return int(self.sendCommand("department"))
         else :
-            return self.sendCommand("department", department)
+            return self.sendCommand("department", str(department))
 
-    def group(self, group) :
+    def group(self, group=None) :
         """Returns the last group number read, or sets the group number, but doesn't write it to the card yet.'"""
         if group is None :
             return int(self.sendCommand("group"))
         else :
-            return self.sendCommand("group", group)
+            return self.sendCommand("group", str(group))
 
     def addgrp(self, group=None) :
         """Adds the group to the list of allowed ones. If no group, the one on the admin card is used."""
-        return int(self.sendCommand("addgrp", group))
+        return int(self.sendCommand("addgrp", str(group)))
 
     def listgrp(self) :
         """Returns the list of allowed group numbers."""
-        return self.sendCommand("listgrp")
+        return [int(g) for g in self.sendCommand("listgrp").split()]
 
     def delgrp(self, group) :
         """Deletes the group from the list of allowed groups."""
-        return int(self.sendCommand("delgrp", group))
+        return int(self.sendCommand("delgrp", str(group)))
 
-    def cardtype(self, cardtype) :
+    def cardtype(self, cardtype=None) :
         """Returns the type of card, or sets it (not clear in the doc if a write call is needed or not)."""
-        return int(self.sendCommand("cardtype", cardtype))
+        # TODO : doesn't seem to return a meaningful answer
+        if cardtype is None :
+            answer = self.sendCommand("cardtype")
+        else :
+            answer = self.sendCommand("cardtype", str(cardtype))
+        try :
+            return int(answer)
+        except ValueError :
+            self.logError("Unknown card type %s" % repr(answer))
+            return None
 
     def display(self, text) :
         """Displays a string of text on the TCRS' screen."""
@@ -264,6 +281,47 @@ class CartadisTCRS :
 
 if __name__ == "__main__" :
     # Minimal testing
-    tcrs = CartadisTCRS("/dev/ttyS0", debug=True)
-    tcrs.help()
-    tcrs.close()
+    tcrs = CartadisTCRS("/dev/ttyS0", debug=False)
+    try :
+        sys.stdout.write("%s TCRS detected on device %s with serial number %s\n" \
+                              % (tcrs.versionNumber,
+                                 tcrs.device,
+                                 tcrs.serialNumber))
+
+
+        sys.stdout.write("This Cartadis TCRS supports the following commands :\n%s\n" % tcrs.help())
+        sys.stdout.write("Allowed groups : %s\n" % tcrs.listgrp())
+
+        import time
+        sys.stdout.write("Please insert your card into the TCRS...")
+        sys.stdout.flush()
+        while True :
+            cardpresent = tcrs.sensor()
+            tcrs.logDebug("Sensor Status : %i\n" % cardpresent)
+            if cardpresent == SENSORCARDINSIDE :
+                break
+            time.sleep(1.0)
+        sys.stdout.write("\n")
+
+        sys.stdout.write("Card read status : %s\n" % tcrs.read())
+        sys.stdout.write("Group : %s\n" % tcrs.group())
+        value = tcrs.value()
+        tcrs.display("Card has %s credits" % value)
+        sys.stdout.write("Card has %s credits\n" % value)
+        sys.stdout.write("Department : %s\n" % tcrs.department())
+        sys.stdout.write("Account : %s\n" % tcrs.account())
+        sys.stdout.write("Transaction # : %s\n" % tcrs.trnum())
+        #
+        # This block commented out because I don't have many credits for testing ;-)
+        # It seems to work anyway.
+        # Now we decrement the number of credits
+        #tcrs.value(value-1)
+        # And we flush the card's content to the card
+        #sys.stdout.write("Card write status : %s\n" % tcrs.write())
+        # Now we read it back
+        #tcrs.read()
+        #sys.stdout.write("Card now has %s credits\n" % tcrs.value())
+    finally :
+        # We always do an eject, even if card not present
+        tcrs.eject()
+        tcrs.close()
