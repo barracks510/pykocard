@@ -70,9 +70,10 @@ class CartadisTCRS :
         self.debug = debug
 
         self.lastcommand = None
+        self.shortprompt = '$'
         self.sol = chr(13) + chr(10) # start of line (begins each answer)
         self.sollen = len(self.sol)
-        self.prompt = chr(13) + chr(10) + '$' # the prompt
+        self.prompt = chr(13) + chr(10) + self.shortprompt # the prompt
         self.promptlen = len(self.prompt)
         self.eoc = chr(13) # end of command
 
@@ -98,7 +99,6 @@ class CartadisTCRS :
         try :
             self.tcrs.flushInput()
             self.tcrs.flushOutput()
-            self.tcrs.read(1) # Skips the first $ prompt
         except serial.serialutil.SerialException, msg :
             self.logError(msg)
             self.close()
@@ -151,12 +151,14 @@ class CartadisTCRS :
             # see what happens. If not accepted, I'll write it another way.
             answer = self.tcrs.readline(eol=self.prompt)
             self.logDebug("TCRS answered %s" % repr(answer))
+            if answer.startswith(self.shortprompt) :
+                answer = answer[len(self.shortprompt):]
             if answer.startswith(command) :
                 answer = answer[len(command):]
             if answer.startswith(self.sol) and answer.endswith(self.prompt) :
                 return answer[self.sollen:-self.promptlen]
             else :
-                if answer != self.sol :
+                if answer and (answer != self.sol) :
                     self.logError("Unknown answer %s" % repr(answer))
                 return None
         else :
@@ -281,7 +283,7 @@ class CartadisTCRS :
 
 if __name__ == "__main__" :
     # Minimal testing
-    tcrs = CartadisTCRS("/dev/ttyS0", debug=False)
+    tcrs = CartadisTCRS("/dev/ttyS0", debug=True)
     try :
         sys.stdout.write("%s TCRS detected on device %s with serial number %s\n" \
                               % (tcrs.versionNumber,
